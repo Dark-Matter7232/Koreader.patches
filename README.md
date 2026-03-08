@@ -93,9 +93,10 @@ A fork of [qewer33/koreader-patches](https://github.com/qewer33/koreader-patches
 ## 🚀 How to Install
 
 1. Download the `2-custom-navbar.lua` file from the link above.
-2. Navigate to the KOReader directory on your device: `koreader/patches/` (create the `patches` folder if it doesn't exist).
-3. Copy the lua file into the `patches` folder.
-4. Restart KOReader.
+2. Download the icons for NavBar file from the repository and extract the icons into koreader/icons.
+3. Navigate to the KOReader directory on your device: `koreader/patches/` (create the `patches` folder if it doesn't exist).
+4. Copy the lua file into the `patches` folder.
+5. Restart KOReader.
 
 ## ⚙️ Configuration
 
