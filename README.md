@@ -53,3 +53,64 @@ After installation, you can customize the look and feel by going to:
 `Settings (Gear icon) -> Screen -> Screensaver/Sleep Screen -> Wallpaper -> Kobo Style (cover + progress) or Estilo Kobo (capa + progresso)`
 
 Enjoy your beautiful new screensaver!
+
+---
+
+# KOReader Custom Bottom Navigation Bar
+
+A fork of [qewer33/koreader-patches](https://github.com/qewer33/koreader-patches) that adds a fully customizable tab bar at the bottom of the KOReader File Manager, with added support for **Z-Library** and **AppStore** tabs.
+
+**[Download the Patch (2-custom-navbar.lua)](https://github.com/PedroMachado1/patches-plugins-for-koreader/blob/main/2-custom-navbar.lua)**
+
+<p align="center">
+  <img src="./images/FileManager_2026-03-07_212859.png" width="60%" alt="Custom Navigation Bar Preview">
+</p>
+
+## ✨ Features
+
+- **Tab Bar**: Adds a bottom navigation bar to the File Manager with icons and labels.
+- **Configurable Tabs**: Show or hide any tab individually via the settings menu.
+- **Tab Order**: Reorder tabs to your preference.
+- **Active Tab Styling**: Highlights the active tab with bold text, underline, and optional color.
+- **Color Support**: Full RGB color support for active tab indicators on color screens.
+
+## 📑 Available Tabs
+
+| Tab | Description |
+|---|---|
+| **Books** | Navigate to your home/books folder |
+| **Manga** | Open Rakuyomi plugin or a custom folder |
+| **News** | Open QuickRSS plugin or a custom folder |
+| **Continue** | Reopen the last read book |
+| **History** | Open reading history |
+| **Favorites** | Open favorites list |
+| **Collections** | Open collections list |
+| **Z-Lib** | Open the Z-Library plugin *(requires zlibrary.koplugin)* |
+| **AppStore** | Open the AppStore plugin *(requires appstore.koplugin)* |
+| **Exit** | Close KOReader |
+
+## 🚀 How to Install
+
+1. Download the `2-custom-navbar.lua` file from the link above.
+2. Navigate to the KOReader directory on your device: `koreader/patches/` (create the `patches` folder if it doesn't exist).
+3. Copy the lua file into the `patches` folder.
+4. Restart KOReader.
+
+## ⚙️ Configuration
+
+After installation, access the settings via the **≡ (hamburger) menu** in the File Manager:
+
+`File Manager Menu → Navbar settings`
+
+From there you can toggle individual tabs on/off, change the active tab color, toggle labels, and more.
+
+## 🔌 Plugin Tabs (Z-Lib & AppStore)
+
+The **Z-Lib** and **AppStore** tabs are disabled by default. To enable them:
+
+1. Make sure `zlibrary.koplugin` and/or `appstore.koplugin` are installed in your `koreader/plugins/` directory.
+2. Go to `File Manager Menu → Settings → Bottom Navigation Bar → Tabs`.
+3. Enable the **Z-Lib** and/or **AppStore** toggles.
+
+> These tabs were added in this fork and are not present in the original patch.
+> 
