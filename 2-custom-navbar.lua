@@ -45,9 +45,10 @@ local config_default = {
         zlib = false,
         annas = false,
         appstore = false,
+        opds = false,
         exit = false,
     },
-    tab_order = { "books", "manga", "news", "continue", "history", "favorites", "collections", "zlib", "annas", "appstore", "exit" },
+    tab_order = { "books", "manga", "news", "continue", "history", "favorites", "collections", "zlib", "annas", "appstore", "opds", "exit" },
     custom_tabs = {}, -- list of { id, label, icon, dispatcher_action }
     show_labels = true,
     show_top_border = true,
@@ -170,6 +171,11 @@ local tabs = {
         id = "appstore",
         label = _("AppStore"),
         icon = "tab_collections",
+    },
+    {
+        id = "opds",
+        label = _("OPDS"),
+        icon = "appbar.filebrowser",
     },
     {
         id = "exit",
@@ -421,15 +427,163 @@ local function onTabAnnas()
     end
 end
 
+local function onTabOpds()
+    local fm = FileManager.instance
+    if not fm then return end
+
+    local opds = fm.opds
+    if not opds then
+        local InfoMessage = require("ui/widget/infomessage")
+        UIManager:show(InfoMessage:new{
+            text = _("OPDS plugin is not enabled.\nEnable it in Settings > Plugins."),
+            timeout = 4,
+        })
+        return
+    end
+
+    local servers = opds.servers or {}
+
+    -- Helper: open the full catalog browser (root list)
+    local function openFullBrowser()
+        opds:onShowOPDSCatalog()
+    end
+
+    -- Helper: open the browser landing directly on a specific server
+    local function openServer(server)
+        local OPDSBrowser = require("opdsbrowser")
+        local browser = OPDSBrowser:new{
+            servers       = opds.servers,
+            downloads     = opds.downloads,
+            settings      = opds.settings,
+            pending_syncs = opds.pending_syncs,
+            title         = server.title,
+            is_popout     = false,
+            is_borderless = true,
+            title_bar_fm_style = true,
+            _manager      = opds,
+            file_downloaded_callback = function(file)
+                opds:showFileDownloadedDialog(file)
+            end,
+            close_callback = function()
+                if browser.download_list then
+                    browser.download_list.close_callback()
+                end
+                UIManager:close(browser)
+                opds.opds_browser = nil
+                if opds.last_downloaded_file then
+                    if fm.file_chooser then
+                        local util = require("util")
+                        local pathname = util.splitFilePathName(opds.last_downloaded_file)
+                        fm.file_chooser:changeToPath(pathname, opds.last_downloaded_file)
+                    end
+                    opds.last_downloaded_file = nil
+                end
+            end,
+        }
+        opds.opds_browser = browser
+        UIManager:show(browser)
+        -- Navigate straight into the chosen server
+        browser:updateCatalog(server.url, server.username, server.password)
+    end
+
+    -- If no servers configured yet, just open the full browser
+    if #servers == 0 then
+        openFullBrowser()
+        return
+    end
+
+    -- If only one server, open it directly without a picker
+    if #servers == 1 then
+        openServer(servers[1])
+        return
+    end
+
+    -- Multiple servers — show a ButtonDialog picker
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local buttons = {}
+
+    for _, server in ipairs(servers) do
+        local s = server
+        table.insert(buttons, {{
+            text = s.title,
+            align = "left",
+            callback = function()
+                UIManager:close(dialog) -- luacheck: ignore (forward ref ok)
+                openServer(s)
+            end,
+        }})
+    end
+
+    -- "All catalogs" option at the bottom
+    table.insert(buttons, {})  -- separator
+    table.insert(buttons, {{
+        text = _("All catalogs"),
+        align = "left",
+        callback = function()
+            UIManager:close(dialog) -- luacheck: ignore
+            openFullBrowser()
+        end,
+    }})
+
+    dialog = ButtonDialog:new{
+        title = _("Open OPDS catalog"),
+        title_align = "center",
+        buttons = buttons,
+        shrink_unneeded_width = true,
+    }
+    UIManager:show(dialog)
+end
+
 local function onTabCustom(tab_id)
     local ct
     for _, c in ipairs(config.custom_tabs) do
         if c.id == tab_id then ct = c; break end
     end
-    if not ct or not ct.dispatcher_action then return end
+    if not ct then return end
 
-    local Dispatcher = require("dispatcher")
-    Dispatcher:dispatch({ action = ct.dispatcher_action }, { name = "bottom_navbar" })
+    -- Source: dispatcher action (native KOReader action via Event)
+    if ct.source == "dispatcher" and ct.dispatcher_action then
+        local Dispatcher = require("dispatcher")
+        local action = Dispatcher.settingsList and Dispatcher.settingsList[ct.dispatcher_action]
+        if action then
+            local Event = require("ui/event")
+            UIManager:sendEvent(Event:new(action.event, action.arg))
+            return
+        end
+    end
+
+    -- Source: fm plugin method (discovered by scanning fm at creation time)
+    if ct.fm_key and ct.fm_method then
+        local fm = FileManager.instance
+        local plugin = fm and fm[ct.fm_key]
+        if plugin and type(plugin[ct.fm_method]) == "function" then
+            plugin[ct.fm_method](plugin)
+            return
+        end
+        local InfoMessage = require("ui/widget/infomessage")
+        UIManager:show(InfoMessage:new{
+            text = _("Plugin not available: ") .. ct.fm_key,
+            timeout = 3,
+        })
+        return
+    end
+
+    -- Legacy: old-style dispatcher_action without source field
+    if ct.dispatcher_action then
+        local Dispatcher = require("dispatcher")
+        local action = Dispatcher.settingsList and Dispatcher.settingsList[ct.dispatcher_action]
+        if action then
+            local Event = require("ui/event")
+            UIManager:sendEvent(Event:new(action.event, action.arg))
+            return
+        end
+    end
+
+    local InfoMessage = require("ui/widget/infomessage")
+    UIManager:show(InfoMessage:new{
+        text = _("Custom tab action not configured correctly."),
+        timeout = 3,
+    })
 end
 
 local tab_callbacks = {
@@ -443,6 +597,7 @@ local tab_callbacks = {
     zlib = onTabZlib,
     annas = onTabAnnas,
     appstore = onTabAppStore,
+    opds = onTabOpds,
     exit = onTabExit,
 }
 
@@ -1488,6 +1643,14 @@ function FileManagerMenu:setUpdateItemTable()
                         end,
                     },
                     {
+                        text = _("OPDS"),
+                        checked_func = function() return config.show_tabs.opds end,
+                        callback = function()
+                            config.show_tabs.opds = not config.show_tabs.opds
+                            G_reader_settings:saveSetting("bottom_navbar", config)
+                        end,
+                    },
+                    {
                         text = _("Exit"),
                         checked_func = function() return config.show_tabs.exit end,
                         callback = function()
@@ -1496,6 +1659,235 @@ function FileManagerMenu:setUpdateItemTable()
                         end,
                     },
                 },
+            },
+            {
+                text = _("Custom tabs"),
+                sub_item_table_func = function()
+                    local items = {}
+
+                    -- One entry per existing custom tab
+                    for i, ct in ipairs(config.custom_tabs) do
+                        local idx = i
+                        table.insert(items, {
+                            text_func = function()
+                                local detail
+                                if ct.fm_key then
+                                    detail = ct.fm_key .. ":" .. (ct.fm_method or "?")
+                                elseif ct.dispatcher_action then
+                                    detail = ct.dispatcher_action
+                                else
+                                    detail = "?"
+                                end
+                                return ct.label .. "  [" .. detail .. "]"
+                            end,
+                            checked_func = function()
+                                return config.show_tabs[ct.id] == true
+                            end,
+                            callback = function()
+                                config.show_tabs[ct.id] = not config.show_tabs[ct.id]
+                                G_reader_settings:saveSetting("bottom_navbar", config)
+                            end,
+                            hold_callback = function(touchmenu_instance)
+                                local ConfirmBox = require("ui/widget/confirmbox")
+                                UIManager:show(ConfirmBox:new{
+                                    text = _("Remove tab '") .. ct.label .. _("'?"),
+                                    ok_callback = function()
+                                        config.show_tabs[ct.id] = nil
+                                        for j = #config.tab_order, 1, -1 do
+                                            if config.tab_order[j] == ct.id then
+                                                table.remove(config.tab_order, j)
+                                            end
+                                        end
+                                        table.remove(config.custom_tabs, idx)
+                                        registerCustomTabs()
+                                        G_reader_settings:saveSetting("bottom_navbar", config)
+                                        if touchmenu_instance then
+                                            touchmenu_instance:updateItems()
+                                        end
+                                    end,
+                                })
+                            end,
+                        })
+                    end
+
+                    -- Add new custom tab entry
+                    table.insert(items, {
+                        text = _("+ Add custom tab"),
+                        separator = #config.custom_tabs > 0,
+                        sub_item_table_func = function()
+                            local fm = FileManager.instance
+
+                            -- 1) Collect candidates from Dispatcher.settingsList (native actions)
+                            local Dispatcher = require("dispatcher")
+                            local settings_list = Dispatcher.settingsList or {}
+                            local action_items = {}
+                            local seen_ids = {}
+
+                            for action_id, action_data in pairs(settings_list) do
+                                if (action_data.general or action_data.filemanager)
+                                    and not seen_ids[action_id] then
+                                    seen_ids[action_id] = true
+                                    table.insert(action_items, {
+                                        id    = action_id,
+                                        title = action_data.title or action_id,
+                                        source = "dispatcher",
+                                    })
+                                end
+                            end
+
+                            -- 2) Also scan fm for loaded plugin instances
+                            --    and surface their public "show/open/launch" methods
+                            if fm then
+                                local skip_keys = {
+                                    -- core FileManager fields, not plugins
+                                    file_chooser=true, _name=true, _classname=true,
+                                    ui=true, dialog=true, history=true, collections=true,
+                                    toolbar=true, menu=true,
+                                }
+                                for key, val in pairs(fm) do
+                                    if type(key) == "string"
+                                        and not skip_keys[key]
+                                        and type(val) == "table"
+                                        and val.addToMainMenu  -- duck-typed: plugins have this
+                                    then
+                                        -- Look for methods that open a UI
+                                        local open_methods = {}
+                                        for mname, mval in pairs(val) do
+                                            if type(mname) == "string"
+                                                and type(mval) == "function"
+                                                and (mname:find("^show") or mname:find("^open")
+                                                     or mname:find("^launch") or mname:find("^on[A-Z]"))
+                                            then
+                                                table.insert(open_methods, mname)
+                                            end
+                                        end
+                                        table.sort(open_methods)
+                                        local plugin_name = (val.name and tostring(val.name)) or key
+                                        for _, mname in ipairs(open_methods) do
+                                            local synthetic_id = "fm:" .. key .. ":" .. mname
+                                            if not seen_ids[synthetic_id] then
+                                                seen_ids[synthetic_id] = true
+                                                table.insert(action_items, {
+                                                    id     = synthetic_id,
+                                                    title  = plugin_name .. " → " .. mname,
+                                                    source = "fm",
+                                                    fm_key = key,
+                                                    fm_method = mname,
+                                                })
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+
+                            table.sort(action_items, function(a, b) return a.title < b.title end)
+
+                            if #action_items == 0 then
+                                return {{
+                                    text = _("No actions found. Make sure plugins are loaded."),
+                                    callback = function() end,
+                                }}
+                            end
+
+                            local icon_options = {
+                                "appbar.search",
+                                "appbar.filebrowser",
+                                "appbar.settings",
+                                "tab_books",
+                                "tab_history",
+                                "tab_favorites",
+                                "tab_collections",
+                                "tab_continue",
+                                "tab_news",
+                                "tab_manga",
+                                "tab_exit",
+                            }
+
+                            local result = {}
+                            for _, a in ipairs(action_items) do
+                                local a_copy = a
+                                table.insert(result, {
+                                    text = a_copy.title,
+                                    sub_item_table_func = function()
+                                        local icon_items = {}
+                                        for _, ico in ipairs(icon_options) do
+                                            local ico_id = ico
+                                            table.insert(icon_items, {
+                                                text = ico_id,
+                                                callback = function(touchmenu_instance)
+                                                    local InputDialog = require("ui/widget/inputdialog")
+                                                    local dlg
+                                                    dlg = InputDialog:new{
+                                                        title = _("Tab label"),
+                                                        input = a_copy.title,
+                                                        buttons = {{
+                                                            {
+                                                                text = _("Cancel"),
+                                                                id = "close",
+                                                                callback = function()
+                                                                    UIManager:close(dlg)
+                                                                end,
+                                                            },
+                                                            {
+                                                                text = _("Add tab"),
+                                                                is_enter_default = true,
+                                                                callback = function()
+                                                                    local tab_label = dlg:getInputText()
+                                                                    if tab_label == "" then tab_label = a_copy.title end
+                                                                    UIManager:close(dlg)
+                                                                    local new_id = "custom_" .. a_copy.id:gsub("[^%w]", "_")
+                                                                    local new_ct = {
+                                                                        id     = new_id,
+                                                                        label  = tab_label,
+                                                                        icon   = ico_id,
+                                                                        source = a_copy.source,
+                                                                    }
+                                                                    if a_copy.source == "dispatcher" then
+                                                                        new_ct.dispatcher_action = a_copy.id
+                                                                    else
+                                                                        new_ct.fm_key    = a_copy.fm_key
+                                                                        new_ct.fm_method = a_copy.fm_method
+                                                                    end
+                                                                    -- Replace if same action exists
+                                                                    local found = false
+                                                                    for i, ct in ipairs(config.custom_tabs) do
+                                                                        if ct.id == new_id then
+                                                                            config.custom_tabs[i] = new_ct
+                                                                            found = true
+                                                                            break
+                                                                        end
+                                                                    end
+                                                                    if not found then
+                                                                        table.insert(config.custom_tabs, new_ct)
+                                                                        config.show_tabs[new_id] = true
+                                                                        table.insert(config.tab_order, new_id)
+                                                                    end
+                                                                    registerCustomTabs()
+                                                                    G_reader_settings:saveSetting("bottom_navbar", config)
+                                                                    local InfoMessage = require("ui/widget/infomessage")
+                                                                    UIManager:show(InfoMessage:new{
+                                                                        text = _("Tab '") .. tab_label .. _("' added!\nTap 'Refresh navbar' to apply."),
+                                                                        timeout = 3,
+                                                                    })
+                                                                end,
+                                                            },
+                                                        }},
+                                                    }
+                                                    UIManager:show(dlg)
+                                                    dlg:onShowKeyboard()
+                                                end,
+                                            })
+                                        end
+                                        return icon_items
+                                    end,
+                                })
+                            end
+                            return result
+                        end,
+                    })
+
+                    return items
+                end,
             },
             {
                 text = _("Advanced"),
